@@ -89,7 +89,7 @@ if zpool create -f \
   -O utf8only=on \
   -O normalization=formD \
   -O casesensitivity=sensitive \
-  -O autoexpand=on \
+  -o autoexpand=on \
   "$POOL_NAME" "$DEVICE"; then
   
   # Create a test dataset
