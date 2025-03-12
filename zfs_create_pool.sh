@@ -1,19 +1,19 @@
 #!/usr/bin/env bash
-# zfs_add_stripe.sh
+# zfs_create_pool.sh
 #
-# Adds a new device as a stripe vdev to an existing ZFS pool
+# Creates a new ZFS pool using the specified disk
 #
-# Usage: ./zfs_add_stripe.sh POOL_NAME DEVICE
+# Usage: ./zfs_create_pool.sh POOL_NAME DEVICE
 #
 # Arguments:
-#   POOL_NAME : Name of the existing ZFS pool
-#   DEVICE    : Path to the device to add as a stripe
+#   POOL_NAME : Name for the new ZFS pool
+#   DEVICE    : Path to the device to use for the ZFS pool
 #
 # Output:
-#   ZFS pool status after adding the device
+#   ZFS pool creation status
 #
 # Example:
-#   ./zfs_add_stripe.sh tank /dev/disk/by-id/scsi-0DO_Volume_volume-nyc1-02
+#   ./zfs_create_pool.sh tank /dev/disk/by-id/scsi-0DO_Volume_volume-nyc1-01
 #
 # Requires:
 #   - zfsutils-linux
@@ -63,9 +63,9 @@ if ! command -v parted &> /dev/null; then
   apt-get update -qq && apt-get install -y parted -qq
 fi
 
-# Check if pool exists
-if ! zpool list "$POOL_NAME" &> /dev/null; then
-  echo -e "${RED}Error: Pool $POOL_NAME does not exist${NC}"
+# Check if pool already exists
+if zpool list "$POOL_NAME" &> /dev/null; then
+  echo -e "${RED}Error: Pool $POOL_NAME already exists${NC}"
   exit 1
 fi
 
@@ -74,21 +74,36 @@ echo -e "${BLUE}Formatting drive as GPT...${NC}"
 wipefs -a "$DEVICE" &> /dev/null
 parted "$DEVICE" -s mklabel gpt &> /dev/null
 
-# Enable autoexpand on the pool
-echo -e "${BLUE}Enabling autoexpand on pool...${NC}"
-zpool set autoexpand=on "$POOL_NAME"
+# Create the mountpoint directory
+MOUNT_PATH="/zfs/$POOL_NAME"
+mkdir -p "$MOUNT_PATH"
 
-# Add the device as a stripe to the pool
-echo -e "${BLUE}Adding device $DEVICE as a stripe to pool $POOL_NAME...${NC}"
-if zpool add "$POOL_NAME" "$DEVICE"; then
-  # Expand the pool
-  echo -e "${BLUE}Expanding pool...${NC}"
-  zpool online -e "$POOL_NAME" "$DEVICE"
+# Create the ZFS pool
+echo -e "${BLUE}Creating ZFS pool $POOL_NAME with optimized settings...${NC}"
+if zpool create -f \
+  -O mountpoint="$MOUNT_PATH" \
+  -O compression=lz4 \
+  -O atime=off \
+  -O sync=standard \
+  -O aclinherit=passthrough \
+  -O utf8only=on \
+  -O normalization=formD \
+  -O casesensitivity=sensitive \
+  -O autoexpand=on \
+  "$POOL_NAME" "$DEVICE"; then
   
-  echo -e "${GREEN}Device $DEVICE added as a stripe to pool $POOL_NAME successfully${NC}"
+  # Create a test dataset
+  zfs create "$POOL_NAME/test" &> /dev/null || true
+  
+  echo -e "${GREEN}Pool $POOL_NAME created successfully${NC}"
+  echo -e "Mountpoint: ${BLUE}$MOUNT_PATH${NC}"
+  echo -e "Device: ${BLUE}$DEVICE${NC}"
+  
+  # Display pool status
   zpool status "$POOL_NAME"
+  
   exit 0
 else
-  echo -e "${RED}Failed to add device $DEVICE to pool $POOL_NAME${NC}"
+  echo -e "${RED}Failed to create pool $POOL_NAME${NC}"
   exit 1
 fi
